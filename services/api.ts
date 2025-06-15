@@ -85,7 +85,18 @@ export async function fetchNearbyRestaurants(
       `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${latitude},${longitude}&radius=${radius}&type=restaurant&key=${GOOGLE_MAPS_API_KEY}`
     );
     const data = await response.json();
-    if (!data.results) return [];
+
+    if (data.status !== 'OK') {
+      throw new Error(`Google Places API error: ${data.status} - ${data.error_message || ''}`);
+    }
+
+    if (!data.results) {
+      if (data.status === 'ZERO_RESULTS') {
+        return []; // No error if API returns zero results
+      }
+      throw new Error("No restaurants found by API.");
+    }
+
     return data.results.map((place: any) => {
       const placeLat = place.geometry.location.lat;
       const placeLng = place.geometry.location.lng;
@@ -112,9 +123,19 @@ export async function fetchNearbyRestaurants(
         photoUrl,
       } as Restaurant;
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error instanceof TypeError && error.message === 'Failed to fetch') {
+      console.error('Network error in fetchNearbyRestaurants:', error);
+      throw new Error('Network error: Failed to fetch restaurant data. Please check your internet connection.');
+    }
+    // Log other errors, but re-throw them so they can be handled by the caller
     console.error('Error fetching nearby restaurants:', error);
-    return [];
+    // If it's one of our custom errors (e.g., API status error), it's already an Error instance.
+    // Otherwise, wrap it or re-throw.
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('An unexpected error occurred while fetching restaurants.');
   }
 }
 
@@ -216,15 +237,32 @@ export async function geocodeAddress(address: string): Promise<{ latitude: numbe
       `https://maps.googleapis.com/maps/api/geocode/json?address=${encoded}&key=${GOOGLE_MAPS_API_KEY}`
     );
     const data = await response.json();
-    if (data.status === 'OK' && data.results.length > 0) {
-      const loc = data.results[0].geometry.location;
-      return { latitude: loc.lat, longitude: loc.lng };
+
+    if (data.status !== 'OK') {
+      throw new Error(`Geocoding API error: ${data.status} - ${data.error_message || ''}`);
     }
-    throw new Error('No geocoding results');
-  } catch (error) {
+
+    if (data.results.length === 0) {
+      throw new Error('No geocoding results found for the address.');
+    }
+
+    // Assuming the first result is the most relevant one
+    const loc = data.results[0].geometry.location;
+    return { latitude: loc.lat, longitude: loc.lng };
+
+  } catch (error: any) {
+    if (error instanceof TypeError && error.message === 'Failed to fetch') {
+      console.error('Network error in geocodeAddress:', error);
+      throw new Error('Network error: Failed to geocode address. Please check your internet connection.');
+    }
+    // Log other errors, but re-throw them to be handled by HomeScreen
     console.error('Error geocoding address:', error);
-    // Fallback to default geolocation logic
-    return await getCurrentLocation();
+    // If it's one of our custom errors (e.g., API status error), it's already an Error instance.
+    // Otherwise, wrap it or re-throw.
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('An unexpected error occurred during geocoding.');
   }
 }
 
@@ -246,22 +284,27 @@ export function estimateWaitTime(volumeScore: number, distance: number): number 
 export async function getCurrentLocation(): Promise<{ latitude: number, longitude: number }> {
   // Default to Pentagon coordinates if geolocation fails or is unavailable
   const defaultLocation = { latitude: 38.8719, longitude: -77.0563 };
-  
-  // In a web environment or if permissions aren't available, return default location
-  if (Platform.OS === 'web' || !navigator.geolocation) {
-    return defaultLocation;
-  }
-  
-  try {
-    // Simulate getting location (in a real app, we'd use Geolocation API)
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Return Pentagon location for demo purposes
-    return defaultLocation;
-  } catch (error) {
-    console.error('Error getting current location:', error);
-    return defaultLocation;
-  }
+
+  return new Promise((resolve) => {
+    if (!navigator.geolocation) {
+      console.error('Geolocation is not supported by this browser.');
+      resolve(defaultLocation);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+      },
+      (error) => {
+        console.error('Error getting current location:', error.message);
+        resolve(defaultLocation);
+      }
+    );
+  });
 }
 
 // Generate a static map URL for a location
