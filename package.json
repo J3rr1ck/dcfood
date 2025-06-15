@@ -11,6 +11,7 @@
     "web": "npx expo start --web"
   },
   "dependencies": {
+    "@babel/runtime": "^7.20.0",
     "expo": "^52.0.46",
     "react": "18.3.1",
     "react-native": "0.76.9",
