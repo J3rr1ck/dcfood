@@ -27,29 +27,46 @@ export default function HomeScreen() {
   const [filter, setFilter] = useState('all');
   const [selectedLocation, setSelectedLocation] = useState('Pentagon');
   const [userLocation, setUserLocation] = useState({ latitude: 38.8719, longitude: -77.0563 });
+  const [errorMsg, setErrorMsg] = useState<string | null>(null); // Added errorMsg state
   const navigation = useNavigation();
 
   // Load restaurant data
   const loadData = async () => {
+    // Outer try-catch for general errors, setLoading is handled by inner finally or this catch
     try {
       setLoading(true);
-      
-      // Geocode the Defense Pentagon address (fallback to current location)
-      const location = await geocodeAddress('1400 Defense Pentagon, Washington, DC');
-      setUserLocation(location);
-      
-      // Fetch nearby restaurants
-      const restaurantData = await fetchNearbyRestaurants(
-        location.latitude,
-        location.longitude,
-        11265 // ~7 miles radius in meters
-      );
-      
-      setRestaurants(restaurantData);
+      setErrorMsg(null); // Clear previous errors on new load attempt
+
+      // Inner try-catch-finally for API calls
+      try {
+        // Geocode the Defense Pentagon address (fallback to current location)
+        const location = await geocodeAddress('1400 Defense Pentagon, Washington, DC');
+        setUserLocation(location);
+
+        // Fetch nearby restaurants
+        const restaurantData = await fetchNearbyRestaurants(
+          location.latitude,
+          location.longitude,
+          11265 // ~7 miles radius in meters
+        );
+
+        setRestaurants(restaurantData);
+        setErrorMsg(null); // Clear error message if successful
+      } catch (apiError: any) {
+        console.error('Error fetching data from API:', apiError);
+        setErrorMsg(apiError.message || 'Failed to load restaurant data. Please try again.');
+        setRestaurants([]); // Clear restaurants on API error
+      } finally {
+        setLoading(false); // Ensure loading is false after API attempt
+      }
     } catch (error) {
-      console.error('Error loading data:', error);
-    } finally {
-      setLoading(false);
+      console.error('Error in loadData:', error);
+      // This catch is for errors outside the inner try-catch, e.g., if setLoading itself fails.
+      // setErrorMsg is likely already set by inner catch, or could be set here for unexpected errors.
+      if (!errorMsg) { // Avoid overwriting a more specific message from inner catch
+        setErrorMsg('An unexpected error occurred.');
+      }
+      setLoading(false); // Ensure loading is false in case of outer errors
     }
   };
   
@@ -126,6 +143,24 @@ export default function HomeScreen() {
         <ActivityIndicator size="large" color="#0066CC" />
         <Text style={styles.loadingText}>Loading DC area restaurant data...</Text>
       </View>
+    );
+  }
+
+  // Display error message if present
+  if (errorMsg) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>DC Food Delivery Tracker</Text>
+        </View>
+        <View style={styles.errorContainer}>
+          <MaterialIcons name="error-outline" size={48} color="#D32F2F" />
+          <Text style={styles.errorText}>{errorMsg}</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={handleRefresh}>
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -291,5 +326,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#999',
     marginTop: 4,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#F5F7FA',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#D32F2F',
+    textAlign: 'center',
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  retryButton: {
+    backgroundColor: '#0066CC',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 5,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '500',
   },
 });
